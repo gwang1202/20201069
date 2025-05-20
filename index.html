@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>4목 게임</title>
+
+    <!-- 공통 자원 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script defer src="common.js"></script> <!-- ★ 사이드바 / 토글 스크립트 -->
+
+    <style>
+        :root {
+            --blue: #0066cc;
+            --red: #29d4c7;
+            --yellow: #e53935
+        }
+
+        :root.dark {
+            --blue: #e5e7eb;
+            --yellow: #cfd3d9
+        }
+
+        .dark .cell {
+            border: 1px solid rgba(0, 0, 0, .12)
+        }
+
+        /* 난이도 버튼 */
+        .diff {
+            all: unset;
+            width: 38px;
+            height: 38px;
+            margin: 4px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            background: var(--gray-600);
+            color: #fff;
+            cursor: pointer;
+            transition: .25s
+        }
+
+        .diff:hover {
+            filter: brightness(1.15)
+        }
+
+        .diff.active[data-lv="1"] {
+            background: var(--primary)
+        }
+
+        .diff.active[data-lv="2"] {
+            background: #ff9800
+        }
+
+        .diff.active[data-lv="3"] {
+            background: #e53935
+        }
+
+        .diff.active[data-lv="4"] {
+            background: #b71c1c
+        }
+
+        .diff.active[data-lv="5"] {
+            background: #820000
+        }
+
+        /* 보드 */
+        #boardWrap {
+            max-width: 440px;
+            margin: 0 auto
+        }
+
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: repeat(6, 1fr);
+            aspect-ratio: 7/6;
+            gap: clamp(4px, 1.2vw, 8px);
+            padding: clamp(4px, 1.2vw, 8px);
+            background: var(--blue);
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, .25)
+        }
+
+        .cell {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            transition: background .15s
+        }
+
+        .cell.player {
+            background: var(--red)
+        }
+
+        .cell.computer {
+            background: var(--yellow);
+            border: 3px solid #fff
+        }
+    </style>
+</head>
+
+<body>
+
+
+    <header>
+        <div class="header-content">
+            <h1><i class="fas fa-braille"></i> 4목 게임</h1>
+            <p>AI를 이겨 보세요!</p>
+        </div>
+    </header>
+
+    <div class="page-layout">
+
+
+        <main class="main-content">
+            <div class="container">
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-braille"></i> 4목 게임</div>
+                    <div class="card-body">
+                        <div id="diffBox" style="text-align:center;margin-bottom:16px">난이도 :
+                            <button class="diff active" data-lv="1">1</button>
+                            <button class="diff" data-lv="2">2</button>
+                            <button class="diff" data-lv="3">3</button>
+                            <button class="diff" data-lv="4">4</button>
+                            <button class="diff" data-lv="5">5</button>
+                        </div>
+
+                        <div id="status" style="text-align:center;font-weight:600;margin-bottom:.8rem">
+                            당신의 차례입니다 (민트색)
+                        </div>
+
+                        <div id="boardWrap">
+                            <div id="gameBoard"></div>
+                        </div>
+
+                        <div style="text-align:center;margin-top:2rem">
+                            <button id="resetBtn" class="btn btn-primary">게임 다시 시작</button>
+                        </div>
+                    </div>
+                </div>
+
+
+            </div>
+        </main>
+
+    </div>
+
+    <!-- ───────── 메인 스크립트 ───────── -->
+    <script>
+        /* 0) 라이트/다크 적용 */
+        (() => {
+            const r = document.documentElement, m = matchMedia('(prefers-color-scheme:dark)');
+            r.classList.toggle('dark', m.matches); m.addEventListener('change', e => r.classList.toggle('dark', e.matches));
+        })();
+
+        /* 1) 전역 */
+        const ROWS = 6, COLS = 7, EMPTY = 0, HUM = 1, AI = 2;
+        let board, playerTurn = true, finished = false, level = 1;
+        const gridEl = document.getElementById('gameBoard'), statusEl = document.getElementById('status');
+
+        /* 2) 보드 함수 */
+        const emptyBoard = _ => Array.from({ length: COLS }, () => Array(ROWS).fill(EMPTY));
+        const nextRow = (b, c) => b[c].indexOf(EMPTY);
+        const legal = b => [...Array(COLS).keys()].filter(c => nextRow(b, c) !== -1);
+        function isWin(b, c, r, p) {
+            const D = [[1, 0], [0, 1], [1, 1], [1, -1]];
+            for (const [dC, dR] of D) {
+                let n = 1;
+                for (const s of [1, -1]) {
+                    let x = c + dC * s, y = r + dR * s;
+                    while (x >= 0 && x < COLS && y >= 0 && y < ROWS && b[x][y] === p) { n++; x += dC * s; y += dR * s; }
+                }
+                if (n >= 4) return true;
+            } return false;
+        }
+
+        /* 3) 렌더 */
+        function buildBoard() {
+            gridEl.innerHTML = '';
+            for (let r = ROWS - 1; r >= 0; r--)for (let c = 0; c < COLS; c++) {
+                const d = document.createElement('div');
+                d.className = 'cell'; d.dataset.c = c; d.dataset.r = r;
+                d.onclick = () => humanMove(c);
+                gridEl.appendChild(d);
+            }
+        }
+        function render() {
+            document.querySelectorAll('.cell').forEach(d => {
+                const r = +d.dataset.r, c = +d.dataset.c, v = board[c][r];
+                d.classList.toggle('player', v === HUM);
+                d.classList.toggle('computer', v === AI);
+            });
+        }
+        function move(c, r, p) { board[c][r] = p; render(); }
+
+        /* 4) 게임 상태 */
+        function endCheck(c, r, p, msg) {
+            if (isWin(board, c, r, p)) { statusEl.textContent = msg; finished = true; return true; }
+            if (legal(board).length === 0) { statusEl.textContent = '무승부입니다!'; finished = true; return true; }
+            return false;
+        }
+
+        /* 5) Web Worker */
+        const aiWorker = new Worker('aiWorker.js');
+        const AI_DELAY = 1000;   // 모든 난이도에 대해 2초 통일 딜레이
+
+        aiWorker.onmessage = e => {
+            const { column } = e.data;
+
+            // 플레이어 턴이거나 게임이 끝났으면 AI 이동 무시
+            if (playerTurn || finished) return;
+
+            statusEl.textContent = 'AI가 돌을 놓는 중...';
+            setTimeout(() => {
+                // 다시 한번 확인 (딜레이 동안 상태가 바뀌었을 수 있음)
+                if (playerTurn || finished) return;
+
+                const r = nextRow(board, column);
+                if (r === -1) return; // 열이 가득 찬 경우 무시
+
+                move(column, r, AI);
+                endCheck(column, r, AI, 'AI가 이겼습니다!');
+                if (!finished) {
+                    playerTurn = true;
+                    statusEl.textContent = '당신의 차례입니다 (민트색)';
+                }
+            }, AI_DELAY); // 통일된 딜레이 2초 적용
+        };
+
+        /* 6) Human 입력 */
+        function humanMove(c) {
+            if (!playerTurn || finished) return;
+            const r = nextRow(board, c); if (r === -1) return;
+            move(c, r, HUM);
+            if (endCheck(c, r, HUM, '🎉 당신이 이겼습니다!')) return;
+            playerTurn = false; statusEl.textContent = 'AI가 생각 중...';
+            aiWorker.postMessage({ type: 'GET_MOVE', board, difficulty: level });
+        }
+
+        /* 7) 리셋 & 난이도 */
+        function reset() {
+            board = emptyBoard(); finished = false; playerTurn = true;
+            statusEl.textContent = '당신의 차례입니다 (민트색)';
+            render();
+        }
+        document.getElementById('resetBtn').onclick = reset;
+        document.querySelectorAll('.diff').forEach(btn => btn.onclick = () => {
+            level = +btn.dataset.lv;
+            document.querySelectorAll('.diff').forEach(b => b.classList.toggle('active', b === btn));
+            reset();
+        });
+
+        /* 8) 시작 */
+        document.addEventListener('DOMContentLoaded', () => { buildBoard(); reset(); });
+    </script>
+</body>
+
+</html>
